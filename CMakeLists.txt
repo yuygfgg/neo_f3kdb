@@ -102,8 +102,14 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i.86")
     elseif(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
         set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/src/flash3kyuu_deband_impl_avx512.cpp" PROPERTIES COMPILE_OPTIONS "-mavx512f;-mavx512bw;-mavx512dq;-mavx512vl;-mavx512cd;-mfma")
     endif()
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
+    message(STATUS "ARM architecture detected (${CMAKE_SYSTEM_PROCESSOR}). Enabling SSE2NEON-backed SSE4 implementation.")
+    target_sources(${LIBRARY_NAME} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/flash3kyuu_deband_impl_sse4.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/flash3kyuu_deband_sse_base.h"
+    )
 else()
-    message(STATUS "Non-x86 architecture detected (${CMAKE_SYSTEM_PROCESSOR}). Skipping SIMD-specific source files.")
+    message(STATUS "Unsupported architecture detected (${CMAKE_SYSTEM_PROCESSOR}). Skipping SIMD-specific source files.")
 endif()
 
 target_link_libraries(${LIBRARY_NAME} PRIVATE "$<$<OR:$<CXX_COMPILER_ID:Intel>,$<CXX_COMPILER_ID:IntelLLVM>>:libmmds>")

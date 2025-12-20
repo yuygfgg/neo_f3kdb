@@ -4,8 +4,6 @@
 #include "impl_dispatch.h"
 #include "sse_utils.h"
 #include "dither_high.h"
-#include "VCL2/vectorclass.h"
-#include "VCL2/vectormath_exp.h"
 
 /****************************************************************************
  * NOTE: DON'T remove static from any function in this file, it is required *
@@ -173,7 +171,13 @@ static __forceinline __m128i convert_float_x2_to_u16(const __m128 val_f_lo, cons
 
 static __forceinline __m128 _mm_pow_ps_scalar_approx(__m128 base, float exponent)
 {
-    return pow(Vec4f(base), exponent);
+    alignas(16) float lanes[4];
+    _mm_store_ps(lanes, base);
+    lanes[0] = powf(lanes[0], exponent);
+    lanes[1] = powf(lanes[1], exponent);
+    lanes[2] = powf(lanes[2], exponent);
+    lanes[3] = powf(lanes[3], exponent);
+    return _mm_load_ps(lanes);
 }
 
 static __forceinline __m128 abs_ps(__m128 x)
@@ -430,16 +434,18 @@ static __m128i __forceinline process_pixels_mode12_high_part(__m128i src_pixels,
                     current_pixel_max_angle_diff_buffer[k_in_group] = max_diff;
                 }
 
-                Vec4f max_angle_diff_ps = Vec4f().load(current_pixel_max_angle_diff_buffer);
-                Vec4fb use_boost_ps = (max_angle_diff_ps <= max_angle_threshold_val);
-                Vec4f boost_factor_ps = _mm_set1_ps(angle_boost_factor_val);
+                const __m128 max_angle_diff_ps = _mm_loadu_ps(current_pixel_max_angle_diff_buffer);
+                const __m128 use_boost_mask = _mm_cmple_ps(max_angle_diff_ps, _mm_set1_ps(max_angle_threshold_val));
+                const __m128 boost_factor_ps = _mm_set1_ps(angle_boost_factor_val);
 
-                Vec4f current_thresh_avg_ps = select(use_boost_ps, static_cast<Vec4f>(orig_thresh_avg_ps) * boost_factor_ps,
-                    static_cast<Vec4f>(orig_thresh_avg_ps));
-                Vec4f current_thresh_max_ps = select(use_boost_ps, static_cast<Vec4f>(orig_thresh_max_ps) * boost_factor_ps,
-                    static_cast<Vec4f>(orig_thresh_max_ps));
-                Vec4f current_thresh_mid_ps = select(use_boost_ps, static_cast<Vec4f>(orig_thresh_mid_ps) * boost_factor_ps,
-                    static_cast<Vec4f>(orig_thresh_mid_ps));
+                auto apply_boost = [&](const __m128 orig_thresh_ps) -> __m128 {
+                    const __m128 boosted = _mm_mul_ps(orig_thresh_ps, boost_factor_ps);
+                    return _mm_or_ps(_mm_and_ps(use_boost_mask, boosted), _mm_andnot_ps(use_boost_mask, orig_thresh_ps));
+                };
+
+                const __m128 current_thresh_avg_ps = apply_boost(orig_thresh_avg_ps);
+                const __m128 current_thresh_max_ps = apply_boost(orig_thresh_max_ps);
+                const __m128 current_thresh_mid_ps = apply_boost(orig_thresh_mid_ps);
 
                 if (four_pix_group == 0) {
                     final_thresh_avg_dif_f_vec_lo = current_thresh_avg_ps;
